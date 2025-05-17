@@ -1,92 +1,288 @@
-import {
-  View,
-  Text,
-  StyleSheet,
-  Dimensions,
-  TouchableOpacity,
-} from "react-native";
-import { GestureDetector, Gesture } from "react-native-gesture-handler";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from "react-native-reanimated";
-import { useState } from "react";
 import { StatusBar } from "expo-status-bar";
+import { useState } from "react";
+import {
+  Dimensions,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, { useSharedValue } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const CANVAS_HEIGHT = SCREEN_HEIGHT * 0.6;
 
 export default function Index() {
-  const [currentSymbol, setCurrentSymbol] = useState<string>("");
-  const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(
-    null
-  );
-  const [endPoint, setEndPoint] = useState<{ x: number; y: number } | null>(
-    null
-  );
-  const [paths, setPaths] = useState<
-    Array<{ points: Array<{ x: number; y: number }> }>
-  >([]);
-  const currentPath = useSharedValue<Array<{ x: number; y: number }>>([]);
+  const [currentSymbol, setCurrentSymbol] = useState("");
+  const [paths, setPaths] = useState([]);
+  const [confidence, setConfidence] = useState(0);
+  const currentPath = useSharedValue([]);
 
-  const recognizeSymbol = (
-    start: { x: number; y: number },
-    end: { x: number; y: number }
-  ) => {
-    const midPoint = SCREEN_WIDTH / 2;
+  // Helper functions for more robust symbol recognition
+  const getPathBoundingBox = (path) => {
+    if (!path || path.length === 0)
+      return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
 
-    // Check if both points are on the same side
-    const bothOnLeft = start.x < midPoint && end.x < midPoint;
-    const bothOnRight = start.x >= midPoint && end.x >= midPoint;
-    const crossesMiddle =
-      (start.x < midPoint && end.x >= midPoint) ||
-      (start.x >= midPoint && end.x < midPoint);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
 
-    // If both points are on the left side -> ">"
-    if (bothOnLeft) {
-      return ">";
+    path.forEach((point) => {
+      minX = Math.min(minX, point.x);
+      maxX = Math.max(maxX, point.x);
+      minY = Math.min(minY, point.y);
+      maxY = Math.max(maxY, point.y);
+    });
+
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
+  };
+
+  const calculateAngle = (p1, p2) => {
+    return (Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI;
+  };
+
+  const calculateCurvature = (path) => {
+    if (path.length < 3) return 0;
+
+    let totalAngleChange = 0;
+
+    for (let i = 1; i < path.length - 1; i++) {
+      const angle1 = calculateAngle(path[i - 1], path[i]);
+      const angle2 = calculateAngle(path[i], path[i + 1]);
+
+      // Calculate the absolute angle difference
+      let angleDiff = Math.abs(angle2 - angle1);
+      // Ensure we get the smallest angle
+      if (angleDiff > 180) angleDiff = 360 - angleDiff;
+
+      totalAngleChange += angleDiff;
     }
 
-    // If both points are on the right side -> "<"
-    if (bothOnRight) {
-      return "<";
+    return totalAngleChange / (path.length - 2);
+  };
+
+  // Simplify the path to reduce noise
+  const simplifyPath = (path, tolerance = 5) => {
+    if (path.length <= 2) return path;
+
+    const result = [path[0]];
+    let lastPoint = path[0];
+
+    for (let i = 1; i < path.length; i++) {
+      const dx = path[i].x - lastPoint.x;
+      const dy = path[i].y - lastPoint.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance > tolerance) {
+        result.push(path[i]);
+        lastPoint = path[i];
+      }
     }
 
-    // If the line crosses the middle -> "="
-    if (crossesMiddle) {
-      return "=";
+    // Always include the last point
+    if (
+      path.length > 1 &&
+      result[result.length - 1] !== path[path.length - 1]
+    ) {
+      result.push(path[path.length - 1]);
     }
 
-    return "Unknown";
+    return result;
+  };
+
+  // Normalize the path to make recognition more consistent
+  const normalizePath = (path) => {
+    const bbox = getPathBoundingBox(path);
+    if (bbox.width === 0 || bbox.height === 0) return path;
+
+    // Scale to a standard size and center
+    return path.map((point) => ({
+      x: (point.x - bbox.minX) / bbox.width,
+      y: (point.y - bbox.minY) / bbox.height,
+    }));
+  };
+
+  // Extract features for recognition
+  const extractFeatures = (path) => {
+    if (path.length < 5) return null;
+
+    const simplifiedPath = simplifyPath(path);
+    const normalizedPath = normalizePath(simplifiedPath);
+
+    if (normalizedPath.length < 3) return null;
+
+    // Split path into sections
+    const firstThird = normalizedPath.slice(
+      0,
+      Math.floor(normalizedPath.length / 3)
+    );
+    const middleThird = normalizedPath.slice(
+      Math.floor(normalizedPath.length / 3),
+      Math.floor((2 * normalizedPath.length) / 3)
+    );
+    const lastThird = normalizedPath.slice(
+      Math.floor((2 * normalizedPath.length) / 3)
+    );
+
+    // Calculate direction changes
+    const firstDirection =
+      lastThird[0].x - firstThird[0].x > 0 ? "right" : "left";
+
+    // Calculate vertical tendency
+    const startY = normalizedPath[0].y;
+    const midY = normalizedPath[Math.floor(normalizedPath.length / 2)].y;
+    const endY = normalizedPath[normalizedPath.length - 1].y;
+
+    // Calculate curvature
+    const curvature = calculateCurvature(normalizedPath);
+
+    // Calculate aspect ratio
+    const bbox = getPathBoundingBox(normalizedPath);
+    const aspectRatio = bbox.width / (bbox.height || 1);
+
+    return {
+      firstDirection,
+      startY,
+      midY,
+      endY,
+      curvature,
+      aspectRatio,
+      length: normalizedPath.length,
+      normalizedPath,
+    };
+  };
+
+  const recognizeSymbol = (path) => {
+    if (path.length < 5) {
+      return { symbol: "Unknown", confidence: 0 };
+    }
+
+    const features = extractFeatures(path);
+    if (!features) return { symbol: "Unknown", confidence: 0 };
+
+    // Initialize scores for each symbol
+    let scores = {
+      ">": 0,
+      "<": 0,
+      "=": 0,
+    };
+
+    // Check for "=" (horizontal line)
+    if (features.aspectRatio > 2.5) {
+      // Long horizontal shape
+      scores["="] += 50;
+
+      // Low curvature is good for "="
+      if (features.curvature < 15) {
+        scores["="] += 30;
+      }
+
+      // Similar Y values at start, middle, and end
+      const yVariation = Math.max(
+        Math.abs(features.startY - features.midY),
+        Math.abs(features.midY - features.endY),
+        Math.abs(features.startY - features.endY)
+      );
+
+      if (yVariation < 0.2) {
+        scores["="] += 20;
+      }
+    }
+
+    // Check for ">" shape
+    if (features.aspectRatio > 0.5 && features.aspectRatio < 2.0) {
+      // Calculate key points for angle detection
+      const firstPoint = features.normalizedPath[0];
+      const midPoint =
+        features.normalizedPath[Math.floor(features.normalizedPath.length / 2)];
+      const lastPoint =
+        features.normalizedPath[features.normalizedPath.length - 1];
+
+      // ">" typically has the middle point furthest to the right
+      if (midPoint.x > firstPoint.x && midPoint.x > lastPoint.x) {
+        scores[">"] += 40;
+
+        // First half should go down, second half up
+        if (midPoint.y > firstPoint.y && midPoint.y > lastPoint.y) {
+          scores[">"] += 30;
+        }
+
+        // Start and end points should be roughly at same height
+        if (Math.abs(firstPoint.y - lastPoint.y) < 0.3) {
+          scores[">"] += 30;
+        }
+      }
+
+      // "<" typically has the middle point furthest to the left
+      if (midPoint.x < firstPoint.x && midPoint.x < lastPoint.x) {
+        scores["<"] += 40;
+
+        // First half should go down, second half up
+        if (midPoint.y > firstPoint.y && midPoint.y > lastPoint.y) {
+          scores["<"] += 30;
+        }
+
+        // Start and end points should be roughly at same height
+        if (Math.abs(firstPoint.y - lastPoint.y) < 0.3) {
+          scores["<"] += 30;
+        }
+      }
+    }
+
+    // Determine the winner
+    let maxScore = 0;
+    let recognizedSymbol = "Unknown";
+
+    Object.entries(scores).forEach(([symbol, score]) => {
+      if (score > maxScore) {
+        maxScore = score;
+        recognizedSymbol = symbol;
+      }
+    });
+
+    // Require a minimum score to consider it recognized
+    if (maxScore < 40) {
+      return { symbol: "Unknown", confidence: 0 };
+    }
+
+    // Normalize confidence to 0-100
+    const confidence = Math.min(100, maxScore);
+
+    return { symbol: recognizedSymbol, confidence };
   };
 
   const gesture = Gesture.Pan()
     .onStart((e) => {
       const newPath = [{ x: e.x, y: e.y }];
       currentPath.value = newPath;
-      setStartPoint({ x: e.x, y: e.y });
     })
     .onUpdate((e) => {
       currentPath.value = [...currentPath.value, { x: e.x, y: e.y }];
     })
-    .onEnd((e) => {
-      const end = { x: e.x, y: e.y };
-      setEndPoint(end);
-      if (startPoint) {
-        const symbol = recognizeSymbol(startPoint, end);
-        setCurrentSymbol(symbol);
+    .onEnd(() => {
+      if (currentPath.value.length > 0) {
+        const result = recognizeSymbol(currentPath.value);
+        setCurrentSymbol(result.symbol);
+        setConfidence(result.confidence);
+        setPaths([...paths, { points: currentPath.value }]);
+        currentPath.value = [];
       }
-      setPaths([...paths, { points: currentPath.value }]);
-      currentPath.value = [];
     });
 
   const clearCanvas = () => {
     setPaths([]);
     setCurrentSymbol("");
-    setStartPoint(null);
-    setEndPoint(null);
+    setConfidence(0);
   };
 
   return (
@@ -134,7 +330,9 @@ export default function Index() {
       <View style={styles.resultContainer}>
         <Text style={styles.resultText}>
           {currentSymbol
-            ? `Recognized Symbol: ${currentSymbol}`
+            ? `Recognized Symbol: ${currentSymbol}${
+                confidence > 0 ? ` (${confidence}% confident)` : ""
+              }`
             : "Draw a symbol"}
         </Text>
       </View>
