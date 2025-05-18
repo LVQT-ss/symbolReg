@@ -164,40 +164,17 @@ export default function Index() {
 
   const recognizeSymbol = (path) => {
     if (path.length < 5) {
-      return { symbol: "Unknown", confidence: 0 };
+      return { symbol: "=", confidence: 0 };
     }
 
     const features = extractFeatures(path);
-    if (!features) return { symbol: "Unknown", confidence: 0 };
+    if (!features) return { symbol: "=", confidence: 0 };
 
     // Initialize scores for each symbol
     let scores = {
       ">": 0,
       "<": 0,
-      "=": 0,
     };
-
-    // Check for "=" (horizontal line)
-    if (features.aspectRatio > 2.5) {
-      // Long horizontal shape
-      scores["="] += 50;
-
-      // Low curvature is good for "="
-      if (features.curvature < 15) {
-        scores["="] += 30;
-      }
-
-      // Similar Y values at start, middle, and end
-      const yVariation = Math.max(
-        Math.abs(features.startY - features.midY),
-        Math.abs(features.midY - features.endY),
-        Math.abs(features.startY - features.endY)
-      );
-
-      if (yVariation < 0.2) {
-        scores["="] += 20;
-      }
-    }
 
     // Check for ">" shape
     if (features.aspectRatio > 0.5 && features.aspectRatio < 2.0) {
@@ -241,7 +218,7 @@ export default function Index() {
 
     // Determine the winner
     let maxScore = 0;
-    let recognizedSymbol = "Unknown";
+    let recognizedSymbol = "="; // Default to "=" instead of "Unknown"
 
     Object.entries(scores).forEach(([symbol, score]) => {
       if (score > maxScore) {
@@ -250,9 +227,9 @@ export default function Index() {
       }
     });
 
-    // Require a minimum score to consider it recognized
+    // Require a minimum score to consider it recognized as ">" or "<"
     if (maxScore < 40) {
-      return { symbol: "Unknown", confidence: 0 };
+      return { symbol: "=", confidence: 0 };
     }
 
     // Normalize confidence to 0-100
