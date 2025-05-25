@@ -3,19 +3,23 @@ import { Dimensions, Platform, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { SharedValue } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
-import { CANVAS_HEIGHT, Point, log, logError } from "../utils/symbolUtils";
+import { Point, log, logError } from "../utils/symbolUtils";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
+// Configurable canvas size - easily adjustable
+const CANVAS_SIZE = Math.min(width, height) * 0.3; // You can change this multiplier to adjust size
 
 interface CanvasProps {
   currentPath: SharedValue<Point[]>;
   paths: Point[][];
+  onGestureStart?: () => void;
   onGestureEnd: (path: Point[]) => void;
 }
 
 const Canvas: React.FC<CanvasProps> = ({
   currentPath,
   paths,
+  onGestureStart,
   onGestureEnd,
 }) => {
   // Debug log for component state
@@ -28,6 +32,11 @@ const Canvas: React.FC<CanvasProps> = ({
     .minDistance(5) // Minimum distance to recognize as a pan
     .onStart((e) => {
       try {
+        // Call the onGestureStart callback if provided
+        if (onGestureStart) {
+          onGestureStart();
+        }
+
         const newPath = [{ x: e.x, y: e.y }];
         currentPath.value = newPath;
       } catch (error) {
@@ -91,7 +100,7 @@ const Canvas: React.FC<CanvasProps> = ({
             }
           } else {
             log("Path too short for recognition:", pathCopy.length);
-            onGestureEnd([]);
+            onGestureEnd(pathCopy); // Pass the short path too for display
           }
         } catch (error) {
           logError("Error processing gesture:", error);
@@ -186,7 +195,7 @@ const Canvas: React.FC<CanvasProps> = ({
     <View style={styles.canvasContainer}>
       <GestureDetector gesture={gesture}>
         <Animated.View style={styles.canvas}>
-          <Svg height={CANVAS_HEIGHT} width={SCREEN_WIDTH}>
+          <Svg height={CANVAS_SIZE} width={CANVAS_SIZE}>
             {renderPaths()}
             {renderCurrentPath()}
           </Svg>
@@ -198,8 +207,8 @@ const Canvas: React.FC<CanvasProps> = ({
 
 const styles = StyleSheet.create({
   canvasContainer: {
-    width: SCREEN_WIDTH,
-    height: CANVAS_HEIGHT,
+    width: CANVAS_SIZE,
+    height: CANVAS_SIZE,
     backgroundColor: "#f5f5f5",
     borderRadius: 10,
     overflow: "hidden",

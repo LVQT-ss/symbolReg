@@ -1,13 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
-import {
-  Dimensions,
-  LogBox,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Dimensions, LogBox, StyleSheet, Text, View } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import Canvas from "../components/canvas";
 import { log, logError, Point, recognizeSymbol } from "../utils/symbolUtils";
@@ -19,6 +12,7 @@ export default function Index() {
   const [currentSymbol, setCurrentSymbol] = useState("");
   const [paths, setPaths] = useState<Point[][]>([]);
   const [confidence, setConfidence] = useState(0);
+  const [shouldClearOnNextDraw, setShouldClearOnNextDraw] = useState(false);
   const currentPath = useSharedValue<Point[]>([]);
 
   // Ignore specific warnings that might be related to gesture handling
@@ -45,6 +39,22 @@ export default function Index() {
     log(`Current Symbol: ${currentSymbol}, Confidence: ${confidence}`);
   }, [currentSymbol, confidence]);
 
+  // Auto-clear function
+  const autoClearCanvas = () => {
+    setPaths([]);
+    setCurrentSymbol("");
+    setConfidence(0);
+    currentPath.value = [];
+    setShouldClearOnNextDraw(false);
+  };
+
+  const handleGestureStart = () => {
+    // Clear canvas when user starts drawing a new symbol
+    if (shouldClearOnNextDraw) {
+      autoClearCanvas();
+    }
+  };
+
   const handleGestureEnd = (path: Point[]) => {
     if (path.length >= 5) {
       try {
@@ -59,6 +69,16 @@ export default function Index() {
           log("Recognition result:", result);
           setCurrentSymbol(result.symbol);
           setConfidence(result.confidence);
+
+          // Set flag to clear on next draw ONLY after successful recognition with confidence > 0
+          // This means actual recognition of >, <, or = symbols
+          if (result.symbol && result.confidence > 0) {
+            setShouldClearOnNextDraw(true);
+          }
+          // Note: Canvas does NOT clear when:
+          // - Symbol recognition fails (confidence = 0)
+          // - Error occurs during recognition
+          // - Symbol defaults to "=" with 0 confidence
         }
 
         // Always save the path for visualization
@@ -67,20 +87,15 @@ export default function Index() {
         logError("Recognition error:", recogError);
         setCurrentSymbol("Error");
         setConfidence(0);
+        // No auto-clear on error - user keeps the drawing to try again
       }
     } else if (path.length > 0) {
       log("Path too short for recognition:", path.length);
       setCurrentSymbol("Too short");
       setConfidence(0);
       setPaths((prevPaths) => [...prevPaths, path]);
+      // No auto-clear for too short paths - user can continue drawing
     }
-  };
-
-  const clearCanvas = () => {
-    setPaths([]);
-    setCurrentSymbol("");
-    setConfidence(0);
-    currentPath.value = [];
   };
 
   return (
@@ -94,6 +109,7 @@ export default function Index() {
       <Canvas
         currentPath={currentPath}
         paths={paths}
+        onGestureStart={handleGestureStart}
         onGestureEnd={handleGestureEnd}
       />
 
@@ -107,10 +123,6 @@ export default function Index() {
           </Text>
         )}
       </View>
-
-      <TouchableOpacity style={styles.clearButton} onPress={clearCanvas}>
-        <Text style={styles.clearButtonText}>Clear Canvas</Text>
-      </TouchableOpacity>
     </View>
   );
 }
@@ -148,17 +160,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#666",
     marginTop: 4,
-  },
-  clearButton: {
-    marginTop: 20,
-    backgroundColor: "#007AFF",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  clearButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "500",
   },
 });

@@ -18,7 +18,6 @@ export const logError = (message: string, error?: any) => {
 };
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-export const CANVAS_HEIGHT = SCREEN_HEIGHT * 0.6;
 
 export interface Point {
   x: number;
