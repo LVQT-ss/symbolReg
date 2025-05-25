@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Dimensions, Platform, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { SharedValue } from "react-native-reanimated";
@@ -22,6 +22,9 @@ const Canvas: React.FC<CanvasProps> = ({
   onGestureStart,
   onGestureEnd,
 }) => {
+  // Use regular state for rendering the current path to avoid accessing shared value during render
+  const [currentDrawingPath, setCurrentDrawingPath] = useState<Point[]>([]);
+
   // Debug log for component state
   useEffect(() => {
     log("Canvas component mounted or updated");
@@ -39,6 +42,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
         const newPath = [{ x: e.x, y: e.y }];
         currentPath.value = newPath;
+        setCurrentDrawingPath(newPath); // Update render state
       } catch (error) {
         logError("Error in gesture start:", error);
       }
@@ -48,7 +52,9 @@ const Canvas: React.FC<CanvasProps> = ({
         if (currentPath.value && Array.isArray(currentPath.value)) {
           // Check if points are valid numbers
           if (!isNaN(e.x) && !isNaN(e.y)) {
-            currentPath.value = [...currentPath.value, { x: e.x, y: e.y }];
+            const updatedPath = [...currentPath.value, { x: e.x, y: e.y }];
+            currentPath.value = updatedPath;
+            setCurrentDrawingPath(updatedPath); // Update render state
           }
         }
       } catch (error) {
@@ -65,6 +71,7 @@ const Canvas: React.FC<CanvasProps> = ({
           // Create a stable copy of the path data first
           const rawPath = [...currentPath.value];
           currentPath.value = []; // Clear early to prevent any issues
+          setCurrentDrawingPath([]); // Clear render state
 
           log(`Processing gesture with ${rawPath.length} points`);
 
@@ -104,10 +111,6 @@ const Canvas: React.FC<CanvasProps> = ({
           }
         } catch (error) {
           logError("Error processing gesture:", error);
-          logError(
-            "Path data:",
-            currentPath.value?.slice?.(0, 5) || "No valid path"
-          );
           onGestureEnd([]);
         }
       }
@@ -160,13 +163,9 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const renderCurrentPath = () => {
     try {
-      if (
-        currentPath.value &&
-        Array.isArray(currentPath.value) &&
-        currentPath.value.length > 1
-      ) {
+      if (currentDrawingPath && currentDrawingPath.length > 1) {
         // Filter and validate points
-        const validPoints = currentPath.value
+        const validPoints = currentDrawingPath
           .filter(
             (pt) => pt && typeof pt.x === "number" && typeof pt.y === "number"
           )
