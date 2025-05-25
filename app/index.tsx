@@ -11,7 +11,6 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 export default function Index() {
   const [currentSymbol, setCurrentSymbol] = useState("");
   const [paths, setPaths] = useState<Point[][]>([]);
-  const [confidence, setConfidence] = useState(0);
   const [shouldClearOnNextDraw, setShouldClearOnNextDraw] = useState(false);
   const currentPath = useSharedValue<Point[]>([]);
 
@@ -36,14 +35,13 @@ export default function Index() {
 
   // Synchronize state for debugging
   useEffect(() => {
-    log(`Current Symbol: ${currentSymbol}, Confidence: ${confidence}`);
-  }, [currentSymbol, confidence]);
+    log(`Current Symbol: ${currentSymbol}`);
+  }, [currentSymbol]);
 
   // Auto-clear function
   const autoClearCanvas = () => {
     setPaths([]);
     setCurrentSymbol("");
-    setConfidence(0);
     currentPath.value = [];
     setShouldClearOnNextDraw(false);
   };
@@ -62,23 +60,21 @@ export default function Index() {
         if (path.some((p) => !isFinite(p.x) || !isFinite(p.y))) {
           log("Invalid points detected, skipping recognition");
           setCurrentSymbol("Invalid input");
-          setConfidence(0);
         } else {
           log("Calling recognizeSymbol");
           const result = recognizeSymbol(path);
           log("Recognition result:", result);
           setCurrentSymbol(result.symbol);
-          setConfidence(result.confidence);
 
-          // Set flag to clear on next draw ONLY after successful recognition with confidence > 0
-          // This means actual recognition of >, <, or = symbols
-          if (result.symbol && result.confidence > 0) {
+          // Set flag to clear on next draw for recognized symbols (>, <, =)
+          if (
+            result.symbol &&
+            (result.symbol === ">" ||
+              result.symbol === "<" ||
+              result.symbol === "=")
+          ) {
             setShouldClearOnNextDraw(true);
           }
-          // Note: Canvas does NOT clear when:
-          // - Symbol recognition fails (confidence = 0)
-          // - Error occurs during recognition
-          // - Symbol defaults to "=" with 0 confidence
         }
 
         // Always save the path for visualization
@@ -86,13 +82,11 @@ export default function Index() {
       } catch (recogError) {
         logError("Recognition error:", recogError);
         setCurrentSymbol("Error");
-        setConfidence(0);
         // No auto-clear on error - user keeps the drawing to try again
       }
     } else if (path.length > 0) {
       log("Path too short for recognition:", path.length);
       setCurrentSymbol("Too short");
-      setConfidence(0);
       setPaths((prevPaths) => [...prevPaths, path]);
       // No auto-clear for too short paths - user can continue drawing
     }
@@ -117,11 +111,6 @@ export default function Index() {
         <Text style={styles.resultText}>
           Recognized Symbol: {currentSymbol || "None"}
         </Text>
-        {confidence > 0 && (
-          <Text style={styles.confidenceText}>
-            Confidence: {confidence.toFixed(1)}%
-          </Text>
-        )}
       </View>
     </View>
   );
@@ -155,10 +144,5 @@ const styles = StyleSheet.create({
   resultText: {
     fontSize: 18,
     fontWeight: "500",
-  },
-  confidenceText: {
-    fontSize: 16,
-    color: "#666",
-    marginTop: 4,
   },
 });

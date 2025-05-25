@@ -255,18 +255,18 @@ export const extractFeatures = (path: Point[]): Features | null => {
 
 export const recognizeSymbol = (
   path: Point[]
-): { symbol: string; confidence: number } => {
+): { symbol: string } => {
   // Early return with better validation
   if (!path || !Array.isArray(path) || path.length < 5) {
     log("Path too short or invalid:", path?.length || 0);
-    return { symbol: "=", confidence: 0 };
+    return { symbol: "=" };
   }
 
   try {
     const features = extractFeatures(path);
     if (!features) {
       log("Failed to extract features");
-      return { symbol: "=", confidence: 0 };
+      return { symbol: "=" };
     }
 
     let scores = {
@@ -316,15 +316,14 @@ export const recognizeSymbol = (
       }
     });
 
+    // Return the best symbol, or "=" if no clear winner
     if (maxScore < 40) {
-      return { symbol: "=", confidence: 0 };
+      return { symbol: "=" };
     }
 
-    const confidence = Math.min(100, maxScore);
-
-    return { symbol: recognizedSymbol, confidence };
+    return { symbol: recognizedSymbol };
   } catch (error) {
     logError("Recognition error:", error);
-    return { symbol: "Error", confidence: 0 };
+    return { symbol: "Error" };
   }
 };
